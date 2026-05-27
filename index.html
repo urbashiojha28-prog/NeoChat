@@ -274,6 +274,25 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .fi{animation:fi .2s ease}
 .skeleton{background:linear-gradient(90deg,var(--bg3) 25%,var(--bg4) 50%,var(--bg3) 75%);background-size:200% 100%;animation:sk 1.4s infinite;border-radius:8px}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+/* Sticker picker */
+.sticker-picker{position:fixed;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);padding:11px;z-index:800;width:min(320px,92vw);height:340px;display:none;flex-direction:column;gap:8px;box-shadow:0 8px 40px rgba(0,0,0,.6);bottom:80px;left:12px}
+.sticker-picker.open{display:flex}
+.sticker-search{padding:7px 11px;background:var(--bg4);border:1px solid var(--border);border-radius:11px;color:var(--text);font-size:13px;font-family:inherit;outline:none;width:100%}
+.sticker-search::placeholder{color:var(--text3)}
+.sticker-cats{display:flex;gap:4px;overflow-x:auto;flex-shrink:0}
+.sticker-cats::-webkit-scrollbar{display:none}
+.scat-btn{padding:4px 10px;border-radius:7px;background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;white-space:nowrap;transition:all .15s;font-family:inherit}
+.scat-btn.active{background:var(--bg4);color:var(--text)}
+.sticker-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;overflow-y:auto;flex:1}
+.sticker-grid::-webkit-scrollbar{width:3px}
+.sticker-grid::-webkit-scrollbar-thumb{background:var(--bg4)}
+.sticker-item{border-radius:10px;overflow:hidden;cursor:pointer;aspect-ratio:1;background:var(--bg4);transition:transform .15s;display:flex;align-items:center;justify-content:center}
+.sticker-item:hover{transform:scale(1.06)}
+.sticker-item img{width:100%;height:100%;object-fit:cover}
+.sticker-loading{flex:1;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:13px}
+/* Sticker message */
+.sticker-msg{width:140px;border-radius:12px;overflow:hidden;cursor:pointer;background:transparent}
+.sticker-msg img{width:100%;display:block}
 @media(max-width:640px){
   .sidebar{position:fixed;inset:0 auto 0 64px;width:calc(100vw - 64px);z-index:100;transform:translateX(-110%)}
   .sidebar.open{transform:translateX(0)}
@@ -363,9 +382,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
           <div class="inp-lbtns">
             <button class="ibtn" onclick="trigFile()" title="Attach image">📎</button>
             <button class="ibtn" onclick="togEmoji()" title="Emoji">😊</button>
+            <button class="ibtn" onclick="togSticker()" title="Stickers & GIFs">🎭</button>
           </div>
           <textarea class="msginp" id="msginp" placeholder="Message..." rows="1" onkeydown="onKey(event)" oninput="onInp()"></textarea>
-          <button class="mic-btn" id="mic-btn" onmousedown="startRec(event)" onmouseup="stopRec()" ontouchstart="startRec(event)" ontouchend="stopRec()" title="Hold to record">🎤</button>
+          <button class="mic-btn" id="mic-btn" onclick="togRec()" title="Tap to record voice note">🎤</button>
           <button class="send-btn" id="send-btn" onclick="sendMsg()" disabled>➤</button>
         </div>
         <div class="rec-ui" id="rec-ui">
@@ -383,6 +403,22 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   <input class="esrch" id="esrch" placeholder="Search emoji..." oninput="filterE()">
   <div class="ecats" id="ecats"></div>
   <div class="egrid" id="egrid"></div>
+</div>
+<!-- Sticker / GIF Picker -->
+<div class="sticker-picker" id="sticker-picker">
+  <input class="sticker-search" id="sticker-search" placeholder="Search GIFs & stickers..." oninput="searchStickers(this.value)">
+  <div class="sticker-cats" id="sticker-cats">
+    <button class="scat-btn active" onclick="loadStickerCat('trending',this)">🔥 Trending</button>
+    <button class="scat-btn" onclick="loadStickerCat('love',this)">❤️ Love</button>
+    <button class="scat-btn" onclick="loadStickerCat('funny',this)">😂 Funny</button>
+    <button class="scat-btn" onclick="loadStickerCat('sad',this)">😢 Sad</button>
+    <button class="scat-btn" onclick="loadStickerCat('celebration',this)">🎉 Party</button>
+    <button class="scat-btn" onclick="loadStickerCat('angry',this)">😡 Angry</button>
+    <button class="scat-btn" onclick="loadStickerCat('cool',this)">😎 Cool</button>
+  </div>
+  <div class="sticker-grid" id="sticker-grid">
+    <div class="sticker-loading">Loading GIFs...</div>
+  </div>
 </div>
 <div class="ctxmenu" id="ctxmenu">
   <div class="ctx-erow" id="ctx-erow"></div>
@@ -699,7 +735,12 @@ function mkBubble(msg,type,grouped=false){
   if(msg.reply_to){const q=document.createElement('div');q.className='rquote';q.innerHTML=`<div class="rquote-auth">↩ ${msg.reply_to_user||'Reply'}</div><div class="rquote-text">${msg.reply_to_content||'...'}</div>`;col.appendChild(q);}
   const bub=document.createElement('div');bub.className='bubble';
   if(msg.type==='voice'){bub.appendChild(mkVoice(msg,mine));}
-  else if(msg.type==='image'){
+  else if(msg.type==='sticker'){
+    const sw=document.createElement('div');sw.className='sticker-msg';
+    const simg=document.createElement('img');simg.src=msg.file_url;simg.loading='lazy';simg.alt='sticker';
+    simg.onclick=()=>{document.getElementById('lb-img').src=msg.file_url;document.getElementById('lightbox').classList.add('open');};
+    sw.appendChild(simg);bub.style.background='transparent';bub.style.padding='0';bub.appendChild(sw);
+  }else if(msg.type==='image'){
     const iw=document.createElement('div');iw.className='img-bubble';
     const img=document.createElement('img');img.src=msg.file_url;img.loading='lazy';
     img.onclick=()=>{document.getElementById('lb-img').src=msg.file_url;document.getElementById('lightbox').classList.add('open');};
@@ -842,7 +883,108 @@ function renderEG(list){const g=document.getElementById('egrid');g.innerHTML='';
 function filterE(){const q=document.getElementById('esrch').value;renderEG(q?allE.filter(e=>e.includes(q)):EC[curECat]);}
 function togEmoji(){document.getElementById('epicker').classList.toggle('open');}
 function insE(em){const inp=document.getElementById('msginp');const pos=inp.selectionStart;inp.value=inp.value.slice(0,pos)+em+inp.value.slice(inp.selectionEnd);inp.selectionStart=inp.selectionEnd=pos+em.length;inp.focus();document.getElementById('send-btn').disabled=!inp.value.trim();}
-document.addEventListener('click',e=>{const p=document.getElementById('epicker');if(!p.contains(e.target)&&!e.target.closest('.ibtn'))p.classList.remove('open');});
+document.addEventListener('click',e=>{
+  const ep=document.getElementById('epicker');
+  const sp=document.getElementById('sticker-picker');
+  const target=e.target;
+  if(!ep.contains(target)&&!target.closest('.ibtn'))ep.classList.remove('open');
+  if(!sp.contains(target)&&!target.closest('.ibtn'))sp.classList.remove('open');
+});
+
+// ── STICKER / GIF PICKER ──
+const TENOR_KEY='AIzaSyANn7JBND2YnuDqZcm1kpfKVkfpJrOgBmk'; // free Tenor v2 key
+let stickerDebounce=null;
+
+function togSticker(){
+  const sp=document.getElementById('sticker-picker');
+  const wasOpen=sp.classList.contains('open');
+  document.getElementById('epicker').classList.remove('open');
+  if(wasOpen){sp.classList.remove('open');return;}
+  sp.classList.add('open');
+  if(document.getElementById('sticker-grid').querySelector('.sticker-loading')){
+    loadStickerCat('trending',document.querySelector('.scat-btn'));
+  }
+}
+
+async function loadStickerCat(query,btnEl){
+  if(btnEl){document.querySelectorAll('.scat-btn').forEach(b=>b.classList.remove('active'));btnEl.classList.add('active');}
+  renderStickerLoading();
+  try{
+    const url=`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_KEY}&limit=20&media_filter=gif`;
+    const r=await fetch(url);const data=await r.json();
+    renderStickers(data.results||[]);
+  }catch{
+    // Fallback: use curated emoji stickers if Tenor fails
+    renderEmojiStickers();
+  }
+}
+
+async function searchStickers(q){
+  clearTimeout(stickerDebounce);
+  if(!q.trim()){loadStickerCat('trending',null);return;}
+  stickerDebounce=setTimeout(async()=>{
+    renderStickerLoading();
+    try{
+      const url=`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q)}&key=${TENOR_KEY}&limit=20&media_filter=gif`;
+      const r=await fetch(url);const data=await r.json();
+      renderStickers(data.results||[]);
+    }catch{renderEmojiStickers();}
+  },400);
+}
+
+function renderStickerLoading(){
+  const g=document.getElementById('sticker-grid');
+  g.innerHTML='<div class="sticker-loading">Loading GIFs...</div>';
+}
+
+function renderStickers(gifs){
+  const g=document.getElementById('sticker-grid');g.innerHTML='';
+  if(!gifs.length){g.innerHTML='<div class="sticker-loading">No GIFs found</div>';return;}
+  gifs.forEach(gif=>{
+    const url=gif.media_formats?.gif?.url||gif.media_formats?.tinygif?.url||gif.url;
+    if(!url)return;
+    const item=document.createElement('div');item.className='sticker-item';
+    const img=document.createElement('img');img.src=url;img.loading='lazy';img.alt='gif';
+    item.appendChild(img);
+    item.onclick=()=>sendSticker(url);
+    g.appendChild(item);
+  });
+}
+
+// Fallback emoji stickers if Tenor API is unavailable
+function renderEmojiStickers(){
+  const emojis=['😂','❤️','😍','🥰','😭','🔥','✨','🎉','👏','💀','😤','🙏','💯','🤣','😊','🥺','😎','🤔','😏','💪','🫶','🤯','😱','🥳','🤩','💅','🫠','😴','🤤','😋'];
+  const g=document.getElementById('sticker-grid');g.innerHTML='';
+  emojis.forEach(em=>{
+    const item=document.createElement('div');item.className='sticker-item';
+    item.style.cssText='font-size:40px;background:var(--bg4)';
+    item.textContent=em;
+    item.onclick=async()=>{
+      // Send as text message with just the emoji (big)
+      const pay={content:em,type:'text',user_id:ME.id};
+      if(activeCh){pay.channel_id=activeCh.id;await sb.from('messages').insert(pay);}
+      else if(activeDM){pay.sender_id=ME.id;pay.receiver_id=activeDM.id;delete pay.user_id;await sb.from('direct_messages').insert(pay);}
+      document.getElementById('sticker-picker').classList.remove('open');
+    };
+    g.appendChild(item);
+  });
+}
+
+async function sendSticker(gifUrl){
+  document.getElementById('sticker-picker').classList.remove('open');
+  toast('Sending GIF...');
+  // Upload the GIF to Supabase storage so it persists
+  try{
+    const resp=await fetch(gifUrl);const blob=await resp.blob();
+    const path=ME.id+'/sticker_'+Date.now()+'.gif';
+    const{error}=await sb.storage.from('neochat').upload(path,blob,{contentType:'image/gif'});
+    let finalUrl=gifUrl;
+    if(!error){const{data:ud}=sb.storage.from('neochat').getPublicUrl(path);finalUrl=ud.publicUrl;}
+    const pay={type:'sticker',file_url:finalUrl,content:'GIF',user_id:ME.id};
+    if(activeCh){pay.channel_id=activeCh.id;await sb.from('messages').insert(pay);}
+    else if(activeDM){pay.sender_id=ME.id;pay.receiver_id=activeDM.id;delete pay.user_id;await sb.from('direct_messages').insert(pay);}
+  }catch{toast('Could not send GIF');}
+}
 
 function trigFile(){document.getElementById('file-inp').click();}
 async function handleFile(){
@@ -859,43 +1001,124 @@ async function handleFile(){
 }
 
 const REC_BARS=38;
-async function startRec(e){
-  if(e&&e.preventDefault)e.preventDefault();if(isRec)return;
+function togRec(){if(isRec)return;startRec();}
+async function startRec(){
+  if(isRec)return;
   if(!activeCh&&!activeDM){toast('Open a chat first');return;}
-  try{recStream=await navigator.mediaDevices.getUserMedia({audio:true});}catch{toast('Microphone not available');return;}
+  try{recStream=await navigator.mediaDevices.getUserMedia({audio:true});}
+  catch(err){
+    if(err.name==='NotAllowedError')toast('Microphone permission denied — allow mic in browser settings');
+    else toast('Microphone not available');return;
+  }
   const mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
-  mRec=new MediaRecorder(recStream,{mimeType:mime});aChunks=[];recT=Date.now();recDurSec=0;
-  mRec.ondataavailable=ev=>{if(ev.data.size>0)aChunks.push(ev.data);};mRec.start(100);isRec=true;
-  try{const ctx=new AudioContext();const src=ctx.createMediaStreamSource(recStream);recAnalyser=ctx.createAnalyser();recAnalyser.fftSize=64;src.connect(recAnalyser);}catch{}
+  mRec=new MediaRecorder(recStream,{mimeType:mime});
+  aChunks=[];recT=Date.now();recDurSec=0;
+  mRec.ondataavailable=ev=>{if(ev.data&&ev.data.size>0)aChunks.push(ev.data);};
+  mRec.start(100);isRec=true;
+  // Waveform analyser
+  try{
+    const actx=new AudioContext();
+    const src=actx.createMediaStreamSource(recStream);
+    recAnalyser=actx.createAnalyser();recAnalyser.fftSize=128;
+    src.connect(recAnalyser);
+  }catch(e){recAnalyser=null;}
+  // Build wave bars
   const wave=document.getElementById('rec-wave');wave.innerHTML='';
   for(let i=0;i<REC_BARS;i++){const b=document.createElement('div');b.className='rec-bar';b.style.height='3px';wave.appendChild(b);}
-  document.getElementById('inp-wrap').style.display='none';document.getElementById('rec-ui').classList.add('active');
+  // Show recording UI
+  document.getElementById('inp-wrap').style.display='none';
+  document.getElementById('rec-ui').classList.add('active');
+  document.getElementById('mic-btn').textContent='⏹';
   const tel=document.getElementById('rec-timer');tel.textContent='0:00';
   recTimerInt=setInterval(()=>{recDurSec=Math.round((Date.now()-recT)/1000);tel.textContent=fmtD(recDurSec);},500);
-  const bars=wave.querySelectorAll('.rec-bar');const arr=new Uint8Array(recAnalyser?recAnalyser.frequencyBinCount:32);
-  function dw(){if(!isRec)return;if(recAnalyser)recAnalyser.getByteFrequencyData(arr);bars.forEach((b,i)=>{const v=arr[Math.floor(i*arr.length/REC_BARS)]||0;b.style.height=Math.max(3,Math.min(24,(v/255)*24))+'px';});recAnimF=requestAnimationFrame(dw);}
+  // Animate waveform
+  const bars=wave.querySelectorAll('.rec-bar');
+  const arr=new Uint8Array(recAnalyser?recAnalyser.frequencyBinCount:64);
+  function dw(){
+    if(!isRec)return;
+    if(recAnalyser)recAnalyser.getByteFrequencyData(arr);
+    else arr.forEach((_,i)=>arr[i]=Math.random()*100);
+    bars.forEach((b,i)=>{
+      const v=arr[Math.floor(i*arr.length/REC_BARS)]||0;
+      b.style.height=Math.max(3,Math.min(24,(v/255)*22+2))+'px';
+    });
+    recAnimF=requestAnimationFrame(dw);
+  }
   dw();
 }
 function stopRec(){}
-function cancelRec(){_stopRec();toast('Recording deleted');}
+function cancelRec(){_stopRec();document.getElementById('mic-btn').textContent='🎤';toast('Recording deleted');}
 async function sendRec(){
-  if(!isRec&&aChunks.length===0)return;_stopRec();
-  await new Promise(r=>setTimeout(r,250));
+  if(!isRec&&aChunks.length===0)return;
+  const dur=recDurSec||1;
+  _stopRec();
+  document.getElementById('mic-btn').textContent='🎤';
+  // Wait for MediaRecorder to flush final chunk
+  await new Promise(r=>setTimeout(r,300));
+  if(!aChunks.length){toast('No audio recorded');return;}
   const blob=new Blob(aChunks,{type:'audio/webm'});
-  if(blob.size<500){toast('Too short');return;}
-  const dur=recDurSec||1;toast('Sending voice note...');
+  if(blob.size<200){toast('Recording too short — try again');return;}
+  toast('Sending voice note...');
   const path=ME.id+'/voice_'+Date.now()+'.webm';
-  const{error}=await sb.storage.from('neochat').upload(path,blob);if(error){toast('Upload failed');return;}
+  const{error}=await sb.storage.from('neochat').upload(path,blob,{contentType:'audio/webm'});
+  if(error){toast('Upload failed: '+error.message);return;}
   const{data:ud}=sb.storage.from('neochat').getPublicUrl(path);
   const pay={type:'voice',file_url:ud.publicUrl,content:'Voice message',duration:dur,user_id:ME.id};
   if(activeCh){pay.channel_id=activeCh.id;await sb.from('messages').insert(pay);}
   else if(activeDM){pay.sender_id=ME.id;pay.receiver_id=activeDM.id;delete pay.user_id;await sb.from('direct_messages').insert(pay);}
 }
-function _stopRec(){if(!isRec)return;isRec=false;clearInterval(recTimerInt);cancelAnimationFrame(recAnimF);if(mRec&&mRec.state!=='inactive')mRec.stop();if(recStream)recStream.getTracks().forEach(t=>t.stop());recStream=null;recAnalyser=null;document.getElementById('inp-wrap').style.display='';document.getElementById('rec-ui').classList.remove('active');}
+function _stopRec(){
+  if(!isRec)return;isRec=false;
+  clearInterval(recTimerInt);cancelAnimationFrame(recAnimF);
+  if(mRec&&mRec.state!=='inactive')mRec.stop();
+  if(recStream)recStream.getTracks().forEach(t=>t.stop());
+  recStream=null;recAnalyser=null;
+  document.getElementById('inp-wrap').style.display='';
+  document.getElementById('rec-ui').classList.remove('active');
+}
 
-async function getIceServers(){if(iceServers)return iceServers;try{const r=await fetch('https://gagan.metered.live/api/v1/turn/credentials?apiKey='+METERED_KEY);iceServers=await r.json();iceServers.unshift({urls:'stun:stun.l.google.com:19302'});return iceServers;}catch{return[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}];}}
-function subscribeCallSignal(){if(callSub){callSub.unsubscribe();callSub=null;}callSub=sb.channel('call-signal-'+ME.id).on('broadcast',{event:'signal'},({payload})=>handleSignal(payload)).subscribe();}
-async function sendSignal(to,p){await sb.channel('call-signal-'+to).send({type:'broadcast',event:'signal',payload:p});}
+async function getIceServers(){
+  if(iceServers)return iceServers;
+  try{
+    const r=await fetch('https://gagan.metered.live/api/v1/turn/credentials?apiKey='+METERED_KEY);
+    iceServers=await r.json();
+    iceServers.unshift({urls:'stun:stun.l.google.com:19302'});
+    return iceServers;
+  }catch{
+    return[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}];
+  }
+}
+
+// Keep a map of outbound channels we've already subscribed
+const outboundChannels={};
+
+function subscribeCallSignal(){
+  if(callSub){callSub.unsubscribe();callSub=null;}
+  callSub=sb.channel('call-signal-'+ME.id,{config:{broadcast:{self:false}}})
+    .on('broadcast',{event:'signal'},({payload})=>handleSignal(payload))
+    .subscribe((status)=>{
+      if(status==='SUBSCRIBED')console.log('[NeoChat] Call signal ready');
+    });
+}
+
+async function sendSignal(to,payload){
+  // Each outbound channel must be subscribed before we can broadcast on it
+  const key='out-'+to;
+  if(!outboundChannels[key]){
+    outboundChannels[key]=sb.channel('call-signal-'+to,{config:{broadcast:{self:false}}});
+    await new Promise(res=>{
+      outboundChannels[key].subscribe(status=>{
+        if(status==='SUBSCRIBED'||status==='CHANNEL_ERROR')res();
+      });
+      setTimeout(res,3000); // fallback timeout
+    });
+  }
+  try{
+    await outboundChannels[key].send({type:'broadcast',event:'signal',payload});
+  }catch(e){
+    console.warn('[NeoChat] sendSignal error',e);
+  }
+}
 async function handleSignal(sig){
   if(!sig||sig.from===ME.id)return;
   if(sig.type==='call-offer')await onIncomingCall(sig);
@@ -1055,4 +1278,3 @@ function toast(msg,ms=3000){const w=document.getElementById('tswrap');const el=d
 </script>
 </body>
 </html>
-

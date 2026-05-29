@@ -274,6 +274,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .fi{animation:fi .2s ease}
 .skeleton{background:linear-gradient(90deg,var(--bg3) 25%,var(--bg4) 50%,var(--bg3) 75%);background-size:200% 100%;animation:sk 1.4s infinite;border-radius:8px}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 /* Sticker picker */
 .sticker-picker{position:fixed;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);padding:11px;z-index:800;width:min(320px,92vw);height:340px;display:none;flex-direction:column;gap:8px;box-shadow:0 8px 40px rgba(0,0,0,.6);bottom:80px;left:12px}
 .sticker-picker.open{display:flex}
@@ -389,11 +390,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
           <button class="send-btn" id="send-btn" onclick="sendMsg()" disabled>➤</button>
         </div>
         <div class="rec-ui" id="rec-ui">
-          <div class="rec-dot"></div>
+          <button class="rec-cancel" onclick="cancelRec()" title="Delete">🗑</button>
           <span class="rec-timer" id="rec-timer">0:00</span>
-          <div class="rec-wave" id="rec-wave"></div>
-          <button class="rec-cancel" onclick="cancelRec()">🗑</button>
-          <button class="rec-send" onclick="sendRec()">➤</button>
+          <div class="rec-wave" id="rec-wave" style="flex:1"></div>
+          <button class="rec-cancel" id="rec-pause-btn" onclick="togRecPause()" title="Pause" style="color:var(--text2)">⏸</button>
+          <button class="rec-send" onclick="sendRec()" title="Send">➤</button>
         </div>
       </div>
     </div>
@@ -406,19 +407,28 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 </div>
 <!-- Sticker / GIF Picker -->
 <div class="sticker-picker" id="sticker-picker">
-  <input class="sticker-search" id="sticker-search" placeholder="Search GIFs & stickers..." oninput="searchStickers(this.value)">
+  <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+    <div style="display:flex;background:var(--bg4);border-radius:20px;padding:3px;gap:2px">
+      <button class="scat-btn active" id="tab-stickers" onclick="switchGiphyTab('stickers',this)">Stickers</button>
+      <button class="scat-btn" id="tab-gifs" onclick="switchGiphyTab('gifs',this)">GIFs</button>
+    </div>
+    <div style="flex:1;position:relative">
+      <input class="sticker-search" id="sticker-search" placeholder="Search..." oninput="searchStickers(this.value)">
+    </div>
+  </div>
   <div class="sticker-cats" id="sticker-cats">
-    <button class="scat-btn active" onclick="loadStickerCat('trending',this)">🔥 Trending</button>
-    <button class="scat-btn" onclick="loadStickerCat('love',this)">❤️ Love</button>
-    <button class="scat-btn" onclick="loadStickerCat('funny',this)">😂 Funny</button>
-    <button class="scat-btn" onclick="loadStickerCat('sad',this)">😢 Sad</button>
-    <button class="scat-btn" onclick="loadStickerCat('celebration',this)">🎉 Party</button>
-    <button class="scat-btn" onclick="loadStickerCat('angry',this)">😡 Angry</button>
-    <button class="scat-btn" onclick="loadStickerCat('cool',this)">😎 Cool</button>
+    <button class="scat-btn active" onclick="loadGiphy('',this)">🔥 Trending</button>
+    <button class="scat-btn" onclick="loadGiphy('love',this)">❤️ Love</button>
+    <button class="scat-btn" onclick="loadGiphy('funny',this)">😂 Funny</button>
+    <button class="scat-btn" onclick="loadGiphy('sad',this)">😢 Sad</button>
+    <button class="scat-btn" onclick="loadGiphy('celebration',this)">🎉 Party</button>
+    <button class="scat-btn" onclick="loadGiphy('angry',this)">😡 Angry</button>
+    <button class="scat-btn" onclick="loadGiphy('cool',this)">😎 Cool</button>
   </div>
   <div class="sticker-grid" id="sticker-grid">
-    <div class="sticker-loading">Loading GIFs...</div>
+    <div class="sticker-loading">Loading...</div>
   </div>
+  <div style="font-size:10px;color:var(--text3);text-align:center;padding:4px 0;flex-shrink:0">Powered by GIPHY</div>
 </div>
 <div class="ctxmenu" id="ctxmenu">
   <div class="ctx-erow" id="ctx-erow"></div>
@@ -768,30 +778,99 @@ function mkReacts(msg,type){
   return rr;
 }
 function mkVoice(msg,mine){
-  const tot=msg.duration||0;
-  function sr(s){let x=Math.sin(s+1)*10000;return x-Math.floor(x);}
-  const BARS=32,id=msg.id||'x',heights=[];
-  for(let i=0;i<BARS;i++)heights.push(sr(id.charCodeAt(i%(id.length||1))*(i+1))*20+4);
+  const tot=(msg.duration||0);
+  const BARS=48;
+  // Parse waveform saved from recorder, or generate natural-looking fallback
+  let waveform=null;
+  if(msg.waveform){try{waveform=JSON.parse(msg.waveform);}catch{}}
+  const bars_data=waveform&&waveform.length?waveform
+    :Array.from({length:BARS},(_,i)=>0.2+0.6*Math.abs(Math.sin(i*0.4+0.5)));
+
   const w=document.createElement('div');w.className='voice-row';
-  const btn=document.createElement('button');btn.className='vplay';btn.innerHTML='▶';
+
+  // Play/pause button
+  const btn=document.createElement('button');btn.className='vplay';
+  btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+
+  // Waveform with pointer-capture scrubbing (Lovable style)
   const ww=document.createElement('div');ww.className='vwave-wrap';
+  ww.style.cssText='flex:1;height:36px;cursor:pointer;touch-action:none;user-select:none;position:relative';
   const wv=document.createElement('div');wv.className='vwave';
-  const bars=[];
-  for(let i=0;i<BARS;i++){const b=document.createElement('div');b.className='vbar';b.style.height=heights[i]+'px';wv.appendChild(b);bars.push(b);}
+  wv.style.cssText='width:100%;height:100%;display:flex;align-items:center;gap:1.5px';
+  const barEls=[];
+  bars_data.forEach((p,i)=>{
+    const b=document.createElement('div');
+    b.style.cssText=`flex:1;border-radius:3px;min-width:2px;transition:background-color 75ms`;
+    b.style.height=Math.max(12,Math.min(100,p*100))+'%';
+    b.style.background=mine?'rgba(255,255,255,0.28)':'rgba(124,111,247,0.3)';
+    wv.appendChild(b);barEls.push(b);
+  });
   ww.appendChild(wv);
-  const dur=document.createElement('span');dur.className='vdur';dur.textContent=fmtD(tot);
+
+  // Duration display
+  const dur=document.createElement('span');dur.className='vdur';
+  dur.textContent=fmtD(tot);
+
+  // Audio engine
   const aud=new Audio(msg.file_url);aud.preload='metadata';
-  let playing=false,af=null;
-  function upd(){if(!aud.duration)return;const pct=aud.currentTime/aud.duration,pl=Math.floor(pct*BARS);bars.forEach((b,i)=>b.classList.toggle('played',i<pl));dur.textContent=fmtD(Math.max(0,Math.round(aud.duration-aud.currentTime)));}
-  function tick(){upd();if(playing)af=requestAnimationFrame(tick);}
+  let playing=false,af=null,dragging=false,progress=0;
+
+  function updBars(){
+    const d=aud.duration&&isFinite(aud.duration)?aud.duration:(tot||1);
+    progress=Math.min(1,aud.currentTime/d);
+    const played=Math.floor(progress*BARS);
+    barEls.forEach((b,i)=>{
+      if(i<played){b.style.background=mine?'rgba(255,255,255,0.95)':'var(--accent)';}
+      else{b.style.background=mine?'rgba(255,255,255,0.28)':'rgba(124,111,247,0.3)';}
+    });
+    const rem=Math.max(0,Math.floor(d-aud.currentTime));
+    dur.textContent=fmtD(rem);
+  }
+
+  function tick(){updBars();if(playing)af=requestAnimationFrame(tick);}
+
+  function setPlayIcon(){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';}
+  function setPauseIcon(){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';}
+  function setLoadIcon(){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="animation:spin .8s linear infinite"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z" opacity=".3"/><path d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8z"/></svg>';}
+
   btn.onclick=()=>{
-    if(playing){aud.pause();playing=false;btn.innerHTML='▶';cancelAnimationFrame(af);}
-    else{document.querySelectorAll('.vplay').forEach(b=>{if(b!==btn&&b.innerHTML==='⏸')b.click();});aud.play().catch(()=>{});playing=true;btn.innerHTML='⏸';tick();}
+    if(playing){aud.pause();}
+    else{
+      // Stop all other playing voice notes
+      document.querySelectorAll('audio[data-vnplaying="1"]').forEach(a=>{try{a.pause();}catch{}});
+      setLoadIcon();
+      aud.play().catch(()=>setPlayIcon());
+    }
   };
-  aud.onended=()=>{playing=false;btn.innerHTML='▶';cancelAnimationFrame(af);bars.forEach(b=>b.classList.remove('played'));dur.textContent=fmtD(tot);};
-  aud.onerror=()=>{dur.textContent='err';};
-  ww.addEventListener('click',e=>{if(!aud.duration)return;const r=ww.getBoundingClientRect();aud.currentTime=(e.clientX-r.left)/r.width*aud.duration;upd();});
-  w.appendChild(btn);w.appendChild(ww);w.appendChild(dur);return w;
+  aud.setAttribute('data-vnplaying','0');
+  aud.addEventListener('play',()=>{aud.setAttribute('data-vnplaying','1');playing=true;setPauseIcon();if(!af)af=requestAnimationFrame(tick);});
+  aud.addEventListener('pause',()=>{aud.setAttribute('data-vnplaying','0');playing=false;setPlayIcon();cancelAnimationFrame(af);af=null;});
+  aud.addEventListener('waiting',()=>setLoadIcon());
+  aud.addEventListener('playing',()=>{if(playing)setPauseIcon();});
+  aud.addEventListener('ended',()=>{
+    aud.setAttribute('data-vnplaying','0');playing=false;setPlayIcon();
+    cancelAnimationFrame(af);af=null;
+    try{aud.currentTime=0;}catch{}
+    barEls.forEach(b=>b.style.background=mine?'rgba(255,255,255,0.28)':'rgba(124,111,247,0.3)');
+    dur.textContent=fmtD(tot);
+  });
+
+  // Pointer-capture scrubbing (no jumps, works on mobile)
+  function ratioAt(clientX){const r=ww.getBoundingClientRect();return Math.min(1,Math.max(0,(clientX-r.left)/r.width));}
+  function seekTo(ratio){
+    const d=aud.duration&&isFinite(aud.duration)?aud.duration:(tot||1);
+    try{aud.currentTime=d*ratio;}catch{}
+    progress=ratio;updBars();
+  }
+  ww.addEventListener('pointerdown',e=>{
+    ww.setPointerCapture(e.pointerId);dragging=true;seekTo(ratioAt(e.clientX));
+  });
+  ww.addEventListener('pointermove',e=>{if(!dragging)return;seekTo(ratioAt(e.clientX));});
+  ww.addEventListener('pointerup',e=>{if(!dragging)return;dragging=false;ww.releasePointerCapture(e.pointerId);});
+  ww.addEventListener('pointercancel',e=>{dragging=false;try{ww.releasePointerCapture(e.pointerId);}catch{}});
+
+  w.appendChild(btn);w.appendChild(ww);w.appendChild(dur);
+  return w;
 }
 
 async function sendMsg(){
@@ -891,9 +970,11 @@ document.addEventListener('click',e=>{
   if(!sp.contains(target)&&!target.closest('.ibtn'))sp.classList.remove('open');
 });
 
-// ── STICKER / GIF PICKER ──
-const TENOR_KEY='AIzaSyANn7JBND2YnuDqZcm1kpfKVkfpJrOgBmk'; // free Tenor v2 key
+// ── GIPHY PICKER ──
+const GIPHY_KEY='l0HlBO9mMEBiKYBMI'; // free public key
+let giphyTab='stickers'; // 'stickers' | 'gifs'
 let stickerDebounce=null;
+let giphyQuery='';
 
 function togSticker(){
   const sp=document.getElementById('sticker-picker');
@@ -901,66 +982,70 @@ function togSticker(){
   document.getElementById('epicker').classList.remove('open');
   if(wasOpen){sp.classList.remove('open');return;}
   sp.classList.add('open');
-  if(document.getElementById('sticker-grid').querySelector('.sticker-loading')){
-    loadStickerCat('trending',document.querySelector('.scat-btn'));
-  }
+  document.getElementById('sticker-search').value='';
+  giphyQuery='';
+  loadGiphy('',document.querySelector('#sticker-cats .scat-btn'));
 }
 
-async function loadStickerCat(query,btnEl){
-  if(btnEl){document.querySelectorAll('.scat-btn').forEach(b=>b.classList.remove('active'));btnEl.classList.add('active');}
+function switchGiphyTab(tab,btn){
+  giphyTab=tab;
+  document.querySelectorAll('#sticker-picker .scat-btn[id^="tab"]').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  loadGiphy(giphyQuery,null);
+}
+
+async function loadGiphy(q,btnEl){
+  giphyQuery=q;
+  if(btnEl){document.querySelectorAll('#sticker-cats .scat-btn').forEach(b=>b.classList.remove('active'));btnEl.classList.add('active');}
   renderStickerLoading();
   try{
-    const url=`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_KEY}&limit=20&media_filter=gif`;
-    const r=await fetch(url);const data=await r.json();
-    renderStickers(data.results||[]);
-  }catch{
-    // Fallback: use curated emoji stickers if Tenor fails
+    const type=giphyTab==='gifs'?'gifs':'stickers';
+    const endpoint=q.trim()
+      ?`https://api.giphy.com/v1/${type}/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=24&rating=pg-13`
+      :`https://api.giphy.com/v1/${type}/trending?api_key=${GIPHY_KEY}&limit=24&rating=pg-13`;
+    const r=await fetch(endpoint);
+    if(!r.ok)throw new Error('GIPHY '+r.status);
+    const data=await r.json();
+    renderGiphyItems(data.data||[]);
+  }catch(e){
+    console.warn('GIPHY error',e);
     renderEmojiStickers();
   }
 }
 
 async function searchStickers(q){
+  giphyQuery=q;
   clearTimeout(stickerDebounce);
-  if(!q.trim()){loadStickerCat('trending',null);return;}
-  stickerDebounce=setTimeout(async()=>{
-    renderStickerLoading();
-    try{
-      const url=`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q)}&key=${TENOR_KEY}&limit=20&media_filter=gif`;
-      const r=await fetch(url);const data=await r.json();
-      renderStickers(data.results||[]);
-    }catch{renderEmojiStickers();}
-  },400);
+  if(!q.trim()){loadGiphy('',null);return;}
+  stickerDebounce=setTimeout(()=>loadGiphy(q,null),350);
 }
 
 function renderStickerLoading(){
-  const g=document.getElementById('sticker-grid');
-  g.innerHTML='<div class="sticker-loading">Loading GIFs...</div>';
+  document.getElementById('sticker-grid').innerHTML='<div class="sticker-loading">Loading...</div>';
 }
 
-function renderStickers(gifs){
+function renderGiphyItems(items){
   const g=document.getElementById('sticker-grid');g.innerHTML='';
-  if(!gifs.length){g.innerHTML='<div class="sticker-loading">No GIFs found</div>';return;}
-  gifs.forEach(gif=>{
-    const url=gif.media_formats?.gif?.url||gif.media_formats?.tinygif?.url||gif.url;
-    if(!url)return;
-    const item=document.createElement('div');item.className='sticker-item';
-    const img=document.createElement('img');img.src=url;img.loading='lazy';img.alt='gif';
-    item.appendChild(img);
-    item.onclick=()=>sendSticker(url);
-    g.appendChild(item);
+  if(!items.length){g.innerHTML='<div class="sticker-loading">Nothing found</div>';return;}
+  items.forEach(item=>{
+    const preview=item.images?.fixed_width_small?.url||item.images?.preview_gif?.url||item.images?.fixed_width?.url;
+    const full=item.images?.original?.url||item.images?.fixed_width?.url;
+    if(!preview||!full)return;
+    const el=document.createElement('div');el.className='sticker-item';
+    const img=document.createElement('img');img.src=preview;img.loading='lazy';img.alt=item.title||'gif';
+    el.appendChild(img);
+    el.onclick=()=>sendSticker(full);
+    g.appendChild(el);
   });
 }
 
-// Fallback emoji stickers if Tenor API is unavailable
 function renderEmojiStickers(){
   const emojis=['😂','❤️','😍','🥰','😭','🔥','✨','🎉','👏','💀','😤','🙏','💯','🤣','😊','🥺','😎','🤔','😏','💪','🫶','🤯','😱','🥳','🤩','💅','🫠','😴','🤤','😋'];
   const g=document.getElementById('sticker-grid');g.innerHTML='';
   emojis.forEach(em=>{
     const item=document.createElement('div');item.className='sticker-item';
-    item.style.cssText='font-size:40px;background:var(--bg4)';
-    item.textContent=em;
+    item.style.cssText='font-size:36px;background:var(--bg4)';item.textContent=em;
     item.onclick=async()=>{
-      // Send as text message with just the emoji (big)
       const pay={content:em,type:'text',user_id:ME.id};
       if(activeCh){pay.channel_id=activeCh.id;await sb.from('messages').insert(pay);}
       else if(activeDM){pay.sender_id=ME.id;pay.receiver_id=activeDM.id;delete pay.user_id;await sb.from('direct_messages').insert(pay);}
@@ -1000,77 +1085,171 @@ async function handleFile(){
   document.getElementById('file-inp').value='';
 }
 
-const REC_BARS=38;
-function togRec(){if(isRec)return;startRec();}
+// ── VOICE RECORDING (Lovable-grade implementation) ──
+const REC_BARS=48;
+let recPeaks=[],recPausedAccum=0,recPausedAt=0,recPaused=false,recBusy=false;
+
+function togRec(){
+  if(!activeCh&&!activeDM){toast('Open a chat first');return;}
+  if(isRec)return; // already recording — use send/cancel buttons
+  startRec();
+}
+
 async function startRec(){
   if(isRec)return;
-  if(!activeCh&&!activeDM){toast('Open a chat first');return;}
-  try{recStream=await navigator.mediaDevices.getUserMedia({audio:true});}
-  catch(err){
-    if(err.name==='NotAllowedError')toast('Microphone permission denied — allow mic in browser settings');
-    else toast('Microphone not available');return;
-  }
-  const mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
-  mRec=new MediaRecorder(recStream,{mimeType:mime});
-  aChunks=[];recT=Date.now();recDurSec=0;
-  mRec.ondataavailable=ev=>{if(ev.data&&ev.data.size>0)aChunks.push(ev.data);};
-  mRec.start(100);isRec=true;
-  // Waveform analyser
   try{
-    const actx=new AudioContext();
+    recStream=await navigator.mediaDevices.getUserMedia({
+      audio:{echoCancellation:true,noiseSuppression:true,sampleRate:44100}
+    });
+  }catch(err){
+    if(err.name==='NotAllowedError'||err.name==='PermissionDeniedError')
+      toast('Mic permission denied — allow it in browser settings');
+    else toast('Microphone not available');
+    return;
+  }
+  // Pick best mime
+  const mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus'
+    :MediaRecorder.isTypeSupported('audio/webm')?'audio/webm'
+    :MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':'';
+  mRec=mime?new MediaRecorder(recStream,{mimeType:mime,audioBitsPerSecond:64000}):new MediaRecorder(recStream);
+  aChunks=[];recPeaks=[];recPausedAccum=0;recPaused=false;recBusy=false;
+  mRec.ondataavailable=ev=>{if(ev.data&&ev.data.size>0)aChunks.push(ev.data);};
+  mRec.start(100);
+  recT=Date.now();recDurSec=0;isRec=true;
+  // AudioContext analyser — time domain for real peak detection
+  try{
+    const AC=window.AudioContext||(window).webkitAudioContext;
+    const actx=new AC();
     const src=actx.createMediaStreamSource(recStream);
-    recAnalyser=actx.createAnalyser();recAnalyser.fftSize=128;
+    recAnalyser=actx.createAnalyser();
+    recAnalyser.fftSize=512;
     src.connect(recAnalyser);
   }catch(e){recAnalyser=null;}
-  // Build wave bars
+  // Build wave bars UI
   const wave=document.getElementById('rec-wave');wave.innerHTML='';
-  for(let i=0;i<REC_BARS;i++){const b=document.createElement('div');b.className='rec-bar';b.style.height='3px';wave.appendChild(b);}
-  // Show recording UI
+  for(let i=0;i<REC_BARS;i++){
+    const b=document.createElement('div');b.className='rec-bar';
+    b.style.cssText='height:3px;transition:height 80ms linear';wave.appendChild(b);
+  }
   document.getElementById('inp-wrap').style.display='none';
   document.getElementById('rec-ui').classList.add('active');
-  document.getElementById('mic-btn').textContent='⏹';
   const tel=document.getElementById('rec-timer');tel.textContent='0:00';
-  recTimerInt=setInterval(()=>{recDurSec=Math.round((Date.now()-recT)/1000);tel.textContent=fmtD(recDurSec);},500);
-  // Animate waveform
+  // Timer
+  recTimerInt=setInterval(()=>{
+    if(!recPaused){
+      recDurSec=Math.round((Date.now()-recT-recPausedAccum)/1000);
+      tel.textContent=fmtD(recDurSec);
+    }
+  },200);
+  // Live waveform using time-domain (much better than frequency for voice)
   const bars=wave.querySelectorAll('.rec-bar');
-  const arr=new Uint8Array(recAnalyser?recAnalyser.frequencyBinCount:64);
+  const buf=new Uint8Array(recAnalyser?recAnalyser.frequencyBinCount:256);
   function dw(){
     if(!isRec)return;
-    if(recAnalyser)recAnalyser.getByteFrequencyData(arr);
-    else arr.forEach((_,i)=>arr[i]=Math.random()*100);
+    let peak=0;
+    if(recAnalyser&&!recPaused){
+      recAnalyser.getByteTimeDomainData(buf);
+      for(let i=0;i<buf.length;i++){const v=Math.abs(buf[i]-128)/128;if(v>peak)peak=v;}
+      // Amplify — voice peaks are often 0.05-0.3, scale to 0-1
+      peak=Math.min(1,peak*4.5);
+      recPeaks.push(peak);
+      if(recPeaks.length>REC_BARS*8)recPeaks=recPeaks.slice(-REC_BARS*8);
+    }
+    // Show last REC_BARS peaks
+    const visible=recPeaks.slice(-REC_BARS);
+    while(visible.length<REC_BARS)visible.unshift(0);
     bars.forEach((b,i)=>{
-      const v=arr[Math.floor(i*arr.length/REC_BARS)]||0;
-      b.style.height=Math.max(3,Math.min(24,(v/255)*22+2))+'px';
+      b.style.height=Math.max(8,visible[i]*100)+'%';
+      b.style.background=recPaused?'var(--text3)':'var(--accent3)';
     });
     recAnimF=requestAnimationFrame(dw);
   }
   dw();
 }
-function stopRec(){}
-function cancelRec(){_stopRec();document.getElementById('mic-btn').textContent='🎤';toast('Recording deleted');}
-async function sendRec(){
-  if(!isRec&&aChunks.length===0)return;
-  const dur=recDurSec||1;
+
+function togRecPause(){
+  if(!isRec||!mRec)return;
+  if(!recPaused){
+    try{mRec.pause();}catch{}
+    recPausedAt=Date.now();
+    recPaused=true;
+    cancelAnimationFrame(recAnimF);
+    document.getElementById('rec-pause-btn').textContent='🎤';
+    document.getElementById('rec-pause-btn').title='Resume';
+  }else{
+    try{mRec.resume();}catch{}
+    recPausedAccum+=Date.now()-recPausedAt;
+    recPaused=false;
+    document.getElementById('rec-pause-btn').textContent='⏸';
+    document.getElementById('rec-pause-btn').title='Pause';
+    // Restart animation
+    const wave=document.getElementById('rec-wave');
+    const bars=wave.querySelectorAll('.rec-bar');
+    const buf=new Uint8Array(recAnalyser?recAnalyser.frequencyBinCount:256);
+    function dw(){
+      if(!isRec||recPaused)return;
+      let peak=0;
+      if(recAnalyser){
+        recAnalyser.getByteTimeDomainData(buf);
+        for(let i=0;i<buf.length;i++){const v=Math.abs(buf[i]-128)/128;if(v>peak)peak=v;}
+        peak=Math.min(1,peak*4.5);
+        recPeaks.push(peak);
+        if(recPeaks.length>REC_BARS*8)recPeaks=recPeaks.slice(-REC_BARS*8);
+      }
+      const visible=recPeaks.slice(-REC_BARS);
+      while(visible.length<REC_BARS)visible.unshift(0);
+      bars.forEach((b,i)=>b.style.height=Math.max(8,visible[i]*100)+'%');
+      recAnimF=requestAnimationFrame(dw);
+    }
+    dw();
+  }
+}
+
+function cancelRec(){
   _stopRec();
+  recPeaks=[];
   document.getElementById('mic-btn').textContent='🎤';
-  // Wait for MediaRecorder to flush final chunk
-  await new Promise(r=>setTimeout(r,300));
-  if(!aChunks.length){toast('No audio recorded');return;}
-  const blob=new Blob(aChunks,{type:'audio/webm'});
-  if(blob.size<200){toast('Recording too short — try again');return;}
+  if(document.getElementById('rec-pause-btn'))document.getElementById('rec-pause-btn').textContent='⏸';
+  toast('Recording deleted');
+}
+
+async function sendRec(){
+  if((!isRec&&aChunks.length===0)||recBusy)return;
+  recBusy=true;
+  const finalPeaks=[...recPeaks];
+  const dur=recDurSec||1;
+  // Capture blob via onstop
+  const blob=await new Promise(resolve=>{
+    if(!mRec){resolve(new Blob(aChunks,{type:'audio/webm'}));return;}
+    mRec.onstop=()=>resolve(new Blob(aChunks,{type:mRec.mimeType||'audio/webm'}));
+    try{mRec.stop();}catch{resolve(new Blob(aChunks,{type:'audio/webm'}));}
+  });
+  _stopRec(true); // pass true = already stopped
+  recPeaks=[];
+  document.getElementById('mic-btn').textContent='🎤';
+  if(blob.size<200){toast('Too short — try again');recBusy=false;return;}
+  // Downsample peaks to 48 bars
+  const wave=[];
+  const bucket=Math.max(1,Math.floor(finalPeaks.length/REC_BARS));
+  for(let i=0;i<REC_BARS;i++){
+    const sl=finalPeaks.slice(i*bucket,(i+1)*bucket);
+    wave.push(sl.length?Math.max(...sl):0);
+  }
   toast('Sending voice note...');
   const path=ME.id+'/voice_'+Date.now()+'.webm';
   const{error}=await sb.storage.from('neochat').upload(path,blob,{contentType:'audio/webm'});
-  if(error){toast('Upload failed: '+error.message);return;}
+  if(error){toast('Upload failed: '+error.message);recBusy=false;return;}
   const{data:ud}=sb.storage.from('neochat').getPublicUrl(path);
-  const pay={type:'voice',file_url:ud.publicUrl,content:'Voice message',duration:dur,user_id:ME.id};
+  const pay={type:'voice',file_url:ud.publicUrl,content:'Voice message',duration:dur,waveform:JSON.stringify(wave),user_id:ME.id};
   if(activeCh){pay.channel_id=activeCh.id;await sb.from('messages').insert(pay);}
   else if(activeDM){pay.sender_id=ME.id;pay.receiver_id=activeDM.id;delete pay.user_id;await sb.from('direct_messages').insert(pay);}
+  recBusy=false;
 }
-function _stopRec(){
-  if(!isRec)return;isRec=false;
+
+function _stopRec(alreadyStopped=false){
+  isRec=false;recPaused=false;
   clearInterval(recTimerInt);cancelAnimationFrame(recAnimF);
-  if(mRec&&mRec.state!=='inactive')mRec.stop();
+  if(!alreadyStopped&&mRec&&mRec.state!=='inactive'){try{mRec.stop();}catch{}}
   if(recStream)recStream.getTracks().forEach(t=>t.stop());
   recStream=null;recAnalyser=null;
   document.getElementById('inp-wrap').style.display='';
@@ -1079,13 +1258,27 @@ function _stopRec(){
 
 async function getIceServers(){
   if(iceServers)return iceServers;
+  // Always include TURN credentials — critical for cross-network calls
+  const TURN_CREDS={
+    username:'2a7d3cf603f26e35c9519201',
+    credential:'ScQoshEuF8urKgKL'
+  };
+  const base=[
+    {urls:'stun:stun.l.google.com:19302'},
+    {urls:'stun:stun1.l.google.com:19302'},
+    {urls:'turn:gagan.metered.live:80',...TURN_CREDS},
+    {urls:'turn:gagan.metered.live:80?transport=tcp',...TURN_CREDS},
+    {urls:'turn:gagan.metered.live:443',...TURN_CREDS},
+    {urls:'turns:gagan.metered.live:443?transport=tcp',...TURN_CREDS},
+  ];
   try{
     const r=await fetch('https://gagan.metered.live/api/v1/turn/credentials?apiKey='+METERED_KEY);
-    iceServers=await r.json();
-    iceServers.unshift({urls:'stun:stun.l.google.com:19302'});
+    const fresh=await r.json();
+    iceServers=[...base,...fresh];
     return iceServers;
   }catch{
-    return[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}];
+    iceServers=base;
+    return iceServers;
   }
 }
 
